@@ -1,0 +1,37 @@
+name: jeremiahportguard
+base: core24
+version: '0.6.0'
+summary: Central local TCP and UDP port authority
+description: |
+  JeremiahPortGuard is a local port registry and resource governor.
+  It helps applications and services coordinate TCP and UDP port usage
+  rather than independently choosing or hard-coding ports.
+
+layout:
+  /var/lib/JeremiahPortGuard:
+    bind: $SNAP_COMMON/JeremiahPortGuard
+
+grade: stable
+confinement: strict
+
+apps:
+  jeremiahportguard:
+    command: usr/bin/JeremiahPortGuard
+    desktop: usr/share/applications/org.oneal.JeremiahPortGuard.desktop
+    common-id: org.oneal.JeremiahPortGuard
+    extensions:
+      - kde-neon-6
+    plugs:
+      - home
+      - network
+      - network-bind
+      - process-control
+      - system-observe
+
+parts:
+  jeremiahportguard:
+    plugin: cmake
+    source: .
+    cmake-parameters:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DCMAKE_INSTALL_PREFIX=/usr
