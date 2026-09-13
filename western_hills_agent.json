@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "authorized_by_user_code": "3team",
   "target": "WesternHillsAgent",
   "host": "127.0.0.1",
@@ -25,5 +25,13 @@
   ],
   "does_not_open_listener": true,
   "does_not_enable_remote_control": true,
-  "does_not_execute_arbitrary_agent_commands": true
+  "does_not_execute_arbitrary_agent_commands": true,
+  "client_version": "JeremiahPortGuard v6",
+  "diagnostic_context": {
+    "enabled": true,
+    "sent_on_every_information_request": true,
+    "conflicts_trigger_early_contact": true,
+    "multiple_instance_anomaly_triggers_early_contact": true,
+    "privacy": "metadata only; no packet payloads, credentials, browser history, clipboard, keystrokes, unrelated documents, or unrelated process memory"
+  }
 }

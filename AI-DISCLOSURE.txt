@@ -1,0 +1,15 @@
+AI / DEVELOPMENT DISCLOSURE
+===========================
+
+Application: JeremiahPortGuard
+Author: Jeremiah Burke O'Neal
+Selected: I used ChatGPT or another AI to assist with or create my program
+Date: September 13, 2026
+
+ChatGPT or another AI system was used to assist with or create portions of this application. The developer selected this disclosure and authenticated that selection through the local password-verification workflow.
+
+License
+-------
+Apache License 2.0
+
+SPDX-License-Identifier: Apache-2.0

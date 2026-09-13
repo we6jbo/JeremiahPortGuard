@@ -1,6 +1,6 @@
-# JeremiahPortGuard v5
+# JeremiahPortGuard v6
 
-Version 5 adds first-install GUI autostart, printable/viewable guide, service-mode switching using the simple case-insensitive `PORTGUIDE` confirmation, a restore-GUI command/menu entry, conflict alerts with suppression, and a local-only status/instructions page on `127.0.0.1:23458`. Existing registry, resource governor, and WesternHillsAgent behavior are preserved.
+Version 6 adds first-install GUI autostart, printable/viewable guide, service-mode switching using the simple case-insensitive `PORTGUIDE` confirmation, a restore-GUI command/menu entry, conflict alerts with suppression, and a local-only status/instructions page on `127.0.0.1:23458`. Existing registry, resource governor, and WesternHillsAgent behavior are preserved.
 
 The local web page is informational only and binds to IPv4 loopback. It does not expose the service to the LAN/WAN.
 
@@ -74,3 +74,8 @@ Machine-readable status is written to:
 The SQLite database also records each attempt in `western_hills_contacts`.
 This integration uses only the documented informational request types and does
 not enable remote-control or arbitrary-command execution.
+
+
+## v6 WesternHillsAgent diagnostic context
+
+Every WesternHillsAgent informational request now carries a bounded `diagnosticContext` object. It includes the triggering reason, recent relevant port-registry events, policy-port state, governor/resource state, alert suppression state, and detected JeremiahPortGuard executable instances. Policy-reserved and managed-port conflicts now cause an uncertainty consultation, and multiple JeremiahPortGuard executable instances can also trigger a consultation. The context deliberately excludes packet payloads, credentials, browser history, clipboard contents, keystrokes, unrelated files, and unrelated process memory.
