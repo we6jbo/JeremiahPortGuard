@@ -430,6 +430,8 @@ void MainWindow::scanListeners()
             if (status == "POLICY_RESERVED") {
                 const QString details = QString("Policy-reserved port is currently occupied by %1").arg(processName);
                 recordEvent("POLICY_PORT_IN_USE", kProjectId, protocol, address, port, "conflict", details);
+                if (unresolvedReason.isEmpty())
+                    unresolvedReason = details;
                 showPortConflictAlert(QString("policy:%1:%2:%3").arg(protocol, address).arg(port), protocol, address, port, details);
             } else if (status == "MANAGED_ASSIGNED") {
                 const QString projectId = existing.value(1).toString();
@@ -451,6 +453,8 @@ void MainWindow::scanListeners()
                     conflict.addBindValue(id);
                     conflict.exec();
                     recordEvent("MAJOR_PORT_CONFLICT", projectId, protocol, address, port, "conflict", details);
+                    if (unresolvedReason.isEmpty())
+                        unresolvedReason = details;
                     showPortConflictAlert(QString("managed:%1:%2:%3:%4").arg(protocol, address).arg(port).arg(actualExe), protocol, address, port, details);
                 }
             }
@@ -482,6 +486,10 @@ void MainWindow::scanListeners()
     }
 
     setStatus(QString("Listener scan complete: %1 listener rows observed. Database: %2").arg(lines.size()).arg(dbPath));
+
+    const QJsonArray jpgInstances = collectJeremiahPortGuardInstances();
+    if (jpgInstances.size() > 1 && unresolvedReason.isEmpty())
+        unresolvedReason = QString("Multiple JeremiahPortGuard executable instances detected: %1").arg(jpgInstances.size());
 
     if (!unresolvedReason.isEmpty())
         requestWesternHillsAgentHelp(unresolvedReason);
@@ -1332,6 +1340,133 @@ void MainWindow::writeWesternHillsStatus(bool success, const QString &reason,
     }
 }
 
+QJsonArray MainWindow::collectJeremiahPortGuardInstances() const
+{
+    QJsonArray instances;
+    QDir proc("/proc");
+    const QStringList entries = proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &entry : entries) {
+        bool ok = false;
+        const qlonglong pid = entry.toLongLong(&ok);
+        if (!ok)
+            continue;
+
+        const QString exe = QFileInfo(QString("/proc/%1/exe").arg(pid)).symLinkTarget();
+        if (exe.isEmpty() || QFileInfo(exe).fileName() != "JeremiahPortGuard")
+            continue;
+
+        QString commandLine = readFirstLine(QString("/proc/%1/cmdline").arg(pid));
+        if (commandLine.contains(QChar('\0')))
+            commandLine.replace(QChar('\0'), ' ');
+        if (commandLine.size() > 256)
+            commandLine = commandLine.left(256) + "...";
+
+        QJsonObject item{
+            {"pid", double(pid)},
+            {"executable", exe},
+            {"is_this_process", pid == QCoreApplication::applicationPid()},
+            {"command_line", commandLine}
+        };
+        instances.append(item);
+        if (instances.size() >= 6)
+            break;
+    }
+    return instances;
+}
+
+QJsonObject MainWindow::buildWesternHillsDiagnosticContext(const QString &reason, bool uncertaintyTriggered) const
+{
+    QJsonObject context{
+        {"schema", 1},
+        {"generatedAt", nowIso()},
+        {"reason", reason},
+        {"uncertaintyTriggered", uncertaintyTriggered},
+        {"projectId", kProjectId},
+        {"applicationId", kApplicationId},
+        {"applicationVersion", QCoreApplication::applicationVersion()},
+        {"tgAkaIdentifier", kTgCode},
+        {"operatingMode", serviceMode ? "SERVICE" : "GUI"},
+        {"statusPage", "http://127.0.0.1:23458/"},
+        {"databasePath", dbPath},
+        {"conflictPopupsSuppressed", suppressConflictPopups}
+    };
+
+    QJsonObject governor{
+        {"machineHealthPercent", lastResource.machineHealthPercent},
+        {"requestedWorkPercent", lastResource.requestedWorkPercent},
+        {"effectiveWorkPercent", lastResource.effectiveWorkPercent},
+        {"governorMode", lastResource.governorMode},
+        {"throttleReason", lastResource.throttleReason},
+        {"systemCpuPercent", lastResource.systemCpu},
+        {"applicationCpuPercent", lastResource.applicationCpu},
+        {"systemRamPercent", lastResource.ramPercent},
+        {"applicationRamMiB", lastResource.applicationRamMiB},
+        {"batteryPercent", lastResource.batteryPercent},
+        {"acKnown", lastResource.acKnown},
+        {"acConnected", lastResource.acConnected},
+        {"cpuTemperatureC", lastResource.cpuTempC},
+        {"thermalThrottling", lastResource.thermalThrottling}
+    };
+    context["resourceGovernor"] = governor;
+
+    const QJsonArray instances = collectJeremiahPortGuardInstances();
+    context["jeremiahPortGuardInstances"] = instances;
+    context["jeremiahPortGuardInstanceCount"] = instances.size();
+    context["multipleJeremiahPortGuardInstances"] = instances.size() > 1;
+
+    QJsonArray recentEvents;
+    if (db.isOpen()) {
+        QSqlQuery q(db);
+        q.exec("SELECT timestamp,event_type,COALESCE(project_id,''),protocol,address,port,result,reason "
+               "FROM events WHERE event_type IN ('MAJOR_PORT_CONFLICT','POLICY_PORT_IN_USE','OBSERVED_LISTENER','WESTERN_HILLS_AGENT_CONTACT') "
+               "ORDER BY id DESC LIMIT 6");
+        while (q.next()) {
+            recentEvents.append(QJsonObject{
+                {"timestamp", q.value(0).toString()},
+                {"eventType", q.value(1).toString()},
+                {"projectId", q.value(2).toString()},
+                {"protocol", q.value(3).toString()},
+                {"address", q.value(4).toString()},
+                {"port", q.value(5).toInt()},
+                {"result", q.value(6).toString()},
+                {"reason", q.value(7).toString().left(256)}
+            });
+        }
+    }
+    context["recentPortEvents"] = recentEvents;
+
+    QJsonArray policyPorts;
+    if (db.isOpen()) {
+        QSqlQuery q(db);
+        q.exec("SELECT protocol,bind_address,port,assignment_status,COALESCE(current_pid,''),"
+               "COALESCE(actual_executable_path,''),is_listening,COALESCE(last_error,'') "
+               "FROM port_assignments WHERE port IN (23458,23459) ORDER BY port,protocol,bind_address");
+        while (q.next()) {
+            policyPorts.append(QJsonObject{
+                {"protocol", q.value(0).toString()},
+                {"bindAddress", q.value(1).toString()},
+                {"port", q.value(2).toInt()},
+                {"assignmentStatus", q.value(3).toString()},
+                {"currentPid", q.value(4).toString()},
+                {"actualExecutablePath", q.value(5).toString()},
+                {"isListening", q.value(6).toBool()},
+                {"lastError", q.value(7).toString().left(256)}
+            });
+        }
+    }
+    context["policyPortState"] = policyPorts;
+
+    context["actionsAlreadyTaken"] = QJsonArray{
+        "scanned Linux listeners",
+        "compared observed listeners with the SQLite registry",
+        "recorded detected conflicts in JeremiahPortGuard events",
+        suppressConflictPopups ? "GUI conflict popups are currently suppressed" : "GUI conflict popup is permitted in GUI mode",
+        "did not inspect packet payloads or unrelated application data"
+    };
+    context["privacyScope"] = "Metadata needed for JeremiahPortGuard diagnostics only; no packet payloads, passwords, browser history, clipboard, keystrokes, unrelated documents, or unrelated process memory.";
+    return context;
+}
+
 bool MainWindow::performWesternHillsAgentSession(const QString &reason, bool uncertaintyTriggered)
 {
     lastWesternHillsAttempt = QDateTime::currentDateTimeUtc();
@@ -1344,6 +1479,8 @@ bool MainWindow::performWesternHillsAgentSession(const QString &reason, bool unc
     const bool primaryConnected = primary.waitForConnected(1000);
     const bool secondaryConnected = secondary.waitForConnected(1000);
     QJsonObject responses;
+    const QJsonObject diagnosticContext = buildWesternHillsDiagnosticContext(reason, uncertaintyTriggered);
+    responses["_sentDiagnosticContext"] = diagnosticContext;
 
     auto readLineJson = [](QTcpSocket &socket, QJsonObject &out, QString &error, int timeoutMs) -> bool {
         QByteArray line;
@@ -1383,7 +1520,10 @@ bool MainWindow::performWesternHillsAgentSession(const QString &reason, bool unc
             {"senderId", kProjectId},
             {"senderType", "local_port_registry"},
             {"messageType", messageType},
-            {"tgAkaIdentifier", kTgCode}
+            {"tgAkaIdentifier", kTgCode},
+            {"requestPurpose", uncertaintyTriggered ? "diagnostic_assistance" : "periodic_context_sync"},
+            {"reason", reason},
+            {"diagnosticContext", diagnosticContext}
         };
         const QByteArray wire = QJsonDocument(request).toJson(QJsonDocument::Compact) + '\n';
         if (socket.write(wire) != wire.size() || !socket.waitForBytesWritten(1500))

@@ -4,6 +4,7 @@
 #include <QSqlDatabase>
 #include <QTimer>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QDateTime>
 #include <QSet>
 #include <QTcpServer>
@@ -139,6 +140,8 @@ private:
     double calculateHealth(const ResourceState &r) const;
     void writeResourceSample(const ResourceState &r);
     bool performWesternHillsAgentSession(const QString &reason, bool uncertaintyTriggered);
+    QJsonObject buildWesternHillsDiagnosticContext(const QString &reason, bool uncertaintyTriggered) const;
+    QJsonArray collectJeremiahPortGuardInstances() const;
     void requestWesternHillsAgentHelp(const QString &reason);
     void scheduleNextWesternHillsContact(bool lastAttemptSucceeded);
     void writeWesternHillsStatus(bool success, const QString &reason, const QString &detail,
