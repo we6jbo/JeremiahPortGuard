@@ -23,11 +23,3 @@ target_compile_definitions(JeremiahPortGuard PRIVATE
 )
 
 install(TARGETS JeremiahPortGuard RUNTIME DESTINATION bin)
-
-# Flathub desktop integration
-install(FILES org.oneal.JeremiahPortGuard.desktop
-        DESTINATION share/applications)
-install(FILES org.oneal.JeremiahPortGuard.metainfo.xml
-        DESTINATION share/metainfo)
-install(FILES org.oneal.JeremiahPortGuard.svg
-        DESTINATION share/icons/hicolor/scalable/apps)

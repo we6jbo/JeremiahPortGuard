@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=JeremiahPortGuard
+Comment=Practice and learn fractions
+Exec=JeremiahPortGuard
+Icon=org.oneal.JeremiahPortGuard
+Terminal=false
+Categories=Education;
