@@ -4,6 +4,8 @@
 #include <QSqlDatabase>
 #include <QTimer>
 #include <QJsonObject>
+#include <QDateTime>
+#include <QSet>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -22,6 +24,7 @@ private slots:
     void exportSnapshot();
     void verifyDatabase();
     void updateResourceState();
+    void contactWesternHillsAgentPeriodic();
 
 private:
     struct CpuSample {
@@ -57,6 +60,7 @@ private:
     QSqlDatabase db;
     QTimer refreshTimer;
     QTimer resourceTimer;
+    QTimer westernHillsTimer;
     QString dataDir;
     QString dbPath;
     QString identityPath;
@@ -70,6 +74,10 @@ private:
     int recoverySampleCount = 0;
     double previousBatteryPercent = -1.0;
     qint64 previousBatteryMs = 0;
+    QDateTime lastWesternHillsAttempt;
+    QDateTime lastWesternHillsSuccess;
+    QDateTime lastUncertaintyConsult;
+    QSet<QString> consultedUncertaintyReasons;
 
     struct Baseline {
         double pluggedCpu = 12.34;
@@ -120,4 +128,9 @@ private:
     double readCpuTemperature() const;
     double calculateHealth(const ResourceState &r) const;
     void writeResourceSample(const ResourceState &r);
+    bool performWesternHillsAgentSession(const QString &reason, bool uncertaintyTriggered);
+    void requestWesternHillsAgentHelp(const QString &reason);
+    void scheduleNextWesternHillsContact(bool lastAttemptSucceeded);
+    void writeWesternHillsStatus(bool success, const QString &reason, const QString &detail,
+                                 const QJsonObject &responses);
 };

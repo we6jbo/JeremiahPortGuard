@@ -19,6 +19,10 @@
 #include <QStandardPaths>
 #include <QTableWidgetItem>
 #include <QStorageInfo>
+#include <QTcpSocket>
+#include <QHostAddress>
+#include <QElapsedTimer>
+#include <QUuid>
 #include <QTextStream>
 #include <QThread>
 
@@ -99,6 +103,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(&refreshTimer, &QTimer::timeout, this, &MainWindow::refreshAll);
     connect(&resourceTimer, &QTimer::timeout, this, &MainWindow::updateResourceState);
+    connect(&westernHillsTimer, &QTimer::timeout, this, &MainWindow::contactWesternHillsAgentPeriodic);
+    westernHillsTimer.setSingleShot(true);
     refreshTimer.start(30000);
     resourceTimer.start(5000);
 
@@ -121,6 +127,7 @@ MainWindow::MainWindow(QWidget *parent)
     previousCpu = readCpuSample();
     refreshAll();
     updateResourceState();
+    QTimer::singleShot(1000, this, &MainWindow::contactWesternHillsAgentPeriodic);
 }
 
 MainWindow::~MainWindow()
@@ -211,9 +218,15 @@ bool MainWindow::ensureSchema()
         "thermal_throttling INTEGER, machine_health_percent REAL, requested_work_percent REAL, effective_work_percent REAL, "
         "governor_mode TEXT, throttle_reason TEXT)",
 
+        "CREATE TABLE IF NOT EXISTS western_hills_contacts ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, reason TEXT NOT NULL, uncertainty_triggered INTEGER NOT NULL DEFAULT 0, "
+        "success INTEGER NOT NULL, primary_connected INTEGER NOT NULL DEFAULT 0, secondary_connected INTEGER NOT NULL DEFAULT 0, "
+        "requests_completed INTEGER NOT NULL DEFAULT 0, detail TEXT, response_json TEXT)",
+
         "CREATE INDEX IF NOT EXISTS idx_ports_status ON port_assignments(assignment_status)",
         "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)",
-        "CREATE INDEX IF NOT EXISTS idx_resource_timestamp ON resource_history(timestamp)"
+        "CREATE INDEX IF NOT EXISTS idx_resource_timestamp ON resource_history(timestamp)",
+        "CREATE INDEX IF NOT EXISTS idx_western_hills_timestamp ON western_hills_contacts(timestamp)"
     };
 
     for (const QString &sql : statements) {
@@ -279,6 +292,10 @@ void MainWindow::seedPolicyReservations()
     policy["instruction"] = "Do not choose a random application port. Query the JeremiahPortGuard registry and request a managed assignment before creating a listener.";
     policy["network_listener_present"] = false;
     policy["client_server_authorization_required"] = "3team";
+    policy["western_hills_agent_client_authorized"] = true;
+    policy["western_hills_agent_primary"] = "127.0.0.1:32767";
+    policy["western_hills_agent_secondary"] = "127.0.0.1:32766";
+    policy["western_hills_agent_protocol"] = "TCP IPv4 loopback + NDJSON protocolVersion 1";
     QJsonArray reserved;
     reserved.append(23458);
     reserved.append(23459);
@@ -310,6 +327,7 @@ void MainWindow::scanListeners()
     const QString output = QString::fromUtf8(p.readAllStandardOutput());
     const QStringList lines = output.split('\n', Qt::SkipEmptyParts);
     const QString seenAt = nowIso();
+    QString unresolvedReason;
 
     QSqlQuery reset(db);
     reset.exec("UPDATE port_assignments SET is_listening=0 WHERE assignment_status='OBSERVED_UNMANAGED'");
@@ -342,6 +360,9 @@ void MainWindow::scanListeners()
         const auto userMatch = usersRe.match(line);
         if (userMatch.hasMatch())
             processName = userMatch.captured(1);
+        else if (unresolvedReason.isEmpty())
+            unresolvedReason = QString("Listener %1 %2:%3 has no process identity available from ss")
+                                   .arg(protocol, address).arg(port);
 
         QString actualExe = "not_available";
         QString actualHash = "not_available";
@@ -350,6 +371,9 @@ void MainWindow::scanListeners()
             actualExe = QFileInfo(QString("/proc/%1/exe").arg(pid)).symLinkTarget();
             if (!actualExe.isEmpty())
                 actualHash = sha256File(actualExe);
+            else if (unresolvedReason.isEmpty())
+                unresolvedReason = QString("Listener %1 %2:%3 PID %4 has no readable executable path")
+                                   .arg(protocol, address).arg(port).arg(pid);
             const QFileInfo statInfo(QString("/proc/%1").arg(pid));
             if (statInfo.exists())
                 processStart = statInfo.birthTime().isValid() ? statInfo.birthTime().toString(Qt::ISODateWithMs) : "not_available";
@@ -409,6 +433,9 @@ void MainWindow::scanListeners()
     }
 
     setStatus(QString("Listener scan complete: %1 listener rows observed. Database: %2").arg(lines.size()).arg(dbPath));
+
+    if (!unresolvedReason.isEmpty())
+        requestWesternHillsAgentHelp(unresolvedReason);
 }
 
 void MainWindow::loadTable()
@@ -961,6 +988,216 @@ void MainWindow::updateResourceState()
                                .arg(r.governorMode)
                                .arg(r.effectiveWorkPercent, 0, 'f', 1)
                                .arg(refreshTimer.interval() / 1000));
+}
+
+
+void MainWindow::contactWesternHillsAgentPeriodic()
+{
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    if (lastWesternHillsSuccess.isValid()) {
+        const qint64 elapsed = lastWesternHillsSuccess.secsTo(now);
+        if (elapsed >= 0 && elapsed < 6 * 60 * 60) {
+            westernHillsTimer.start(int((6 * 60 * 60 - elapsed) * 1000));
+            return;
+        }
+    }
+    const bool ok = performWesternHillsAgentSession("scheduled_six_hour_contact", false);
+    scheduleNextWesternHillsContact(ok);
+}
+
+void MainWindow::requestWesternHillsAgentHelp(const QString &reason)
+{
+    if (consultedUncertaintyReasons.contains(reason))
+        return;
+    consultedUncertaintyReasons.insert(reason);
+
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    if (lastUncertaintyConsult.isValid() && lastUncertaintyConsult.secsTo(now) < 60)
+        return;
+
+    lastUncertaintyConsult = now;
+    const bool ok = performWesternHillsAgentSession("uncertainty: " + reason, true);
+    scheduleNextWesternHillsContact(ok);
+}
+
+void MainWindow::scheduleNextWesternHillsContact(bool lastAttemptSucceeded)
+{
+    // A successful information session satisfies the six-hour requirement.
+    // Failed attempts retry in ten minutes so an unavailable agent does not leave
+    // JeremiahPortGuard disconnected for a full six-hour interval.
+    const int msec = lastAttemptSucceeded ? 6 * 60 * 60 * 1000 : 10 * 60 * 1000;
+    westernHillsTimer.start(msec);
+}
+
+void MainWindow::writeWesternHillsStatus(bool success, const QString &reason,
+                                         const QString &detail, const QJsonObject &responses)
+{
+    QJsonObject status{
+        {"schema", 1},
+        {"updated_at", nowIso()},
+        {"target", "WesternHillsAgent"},
+        {"primary_endpoint", "127.0.0.1:32767"},
+        {"secondary_endpoint", "127.0.0.1:32766"},
+        {"transport", "TCP/IPv4 loopback"},
+        {"framing", "NDJSON"},
+        {"protocol_version", 1},
+        {"success", success},
+        {"reason", reason},
+        {"detail", detail},
+        {"last_attempt_utc", lastWesternHillsAttempt.isValid() ? lastWesternHillsAttempt.toString(Qt::ISODateWithMs) : QString()},
+        {"last_success_utc", lastWesternHillsSuccess.isValid() ? lastWesternHillsSuccess.toString(Qt::ISODateWithMs) : QString()},
+        {"next_required_contact_utc", lastWesternHillsSuccess.isValid() ? lastWesternHillsSuccess.addSecs(6 * 60 * 60).toString(Qt::ISODateWithMs) : QString()},
+        {"responses", responses}
+    };
+
+    QSaveFile out(dataDir + "/western_hills_agent_status.json");
+    if (out.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        out.write(QJsonDocument(status).toJson(QJsonDocument::Indented));
+        out.commit();
+    }
+}
+
+bool MainWindow::performWesternHillsAgentSession(const QString &reason, bool uncertaintyTriggered)
+{
+    lastWesternHillsAttempt = QDateTime::currentDateTimeUtc();
+
+    QTcpSocket primary;
+    QTcpSocket secondary;
+    primary.connectToHost(QHostAddress::LocalHost, 32767);
+    secondary.connectToHost(QHostAddress::LocalHost, 32766);
+
+    const bool primaryConnected = primary.waitForConnected(1000);
+    const bool secondaryConnected = secondary.waitForConnected(1000);
+    QJsonObject responses;
+
+    auto readLineJson = [](QTcpSocket &socket, QJsonObject &out, QString &error, int timeoutMs) -> bool {
+        QByteArray line;
+        QElapsedTimer timer;
+        timer.start();
+        while (timer.elapsed() < timeoutMs) {
+            if (socket.canReadLine()) {
+                line = socket.readLine();
+                break;
+            }
+            if (!socket.waitForReadyRead(std::max(1, timeoutMs - int(timer.elapsed()))))
+                break;
+        }
+        if (line.isEmpty()) {
+            error = socket.errorString().isEmpty() ? "no NDJSON line received" : socket.errorString();
+            return false;
+        }
+        if (line.size() > 16 * 1024) {
+            error = "response exceeded 16 KiB";
+            return false;
+        }
+        QJsonParseError pe;
+        const QJsonDocument doc = QJsonDocument::fromJson(line.trimmed(), &pe);
+        if (pe.error != QJsonParseError::NoError || !doc.isObject()) {
+            error = "invalid JSON response: " + pe.errorString();
+            return false;
+        }
+        out = doc.object();
+        return true;
+    };
+
+    auto sendRequest = [&](QTcpSocket &socket, const QString &channel, const QString &messageType) -> bool {
+        const QString messageId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QJsonObject request{
+            {"protocolVersion", 1},
+            {"messageId", messageId},
+            {"senderId", kProjectId},
+            {"senderType", "local_port_registry"},
+            {"messageType", messageType},
+            {"tgAkaIdentifier", kTgCode}
+        };
+        const QByteArray wire = QJsonDocument(request).toJson(QJsonDocument::Compact) + '\n';
+        if (socket.write(wire) != wire.size() || !socket.waitForBytesWritten(1500))
+            return false;
+
+        QJsonObject reply;
+        QString error;
+        if (!readLineJson(socket, reply, error, 1000)) {
+            responses[channel + "." + messageType + ".error"] = error;
+            return false;
+        }
+        responses[channel + "." + messageType] = reply;
+        return reply.value("inReplyTo").toString() == messageId || reply.value("messageType").toString() == "error";
+    };
+
+    QString detail;
+    int completed = 0;
+    bool ok = primaryConnected && secondaryConnected;
+
+    if (primaryConnected) {
+        QJsonObject hello;
+        QString error;
+        if (readLineJson(primary, hello, error, 1000))
+            responses["primary.hello"] = hello;
+        else {
+            responses["primary.hello.error"] = error;
+            ok = false;
+        }
+    }
+    if (secondaryConnected) {
+        QJsonObject hello;
+        QString error;
+        if (readLineJson(secondary, hello, error, 1000))
+            responses["secondary.hello"] = hello;
+        else {
+            responses["secondary.hello.error"] = error;
+            ok = false;
+        }
+    }
+
+    if (primaryConnected) {
+        for (const QString &type : {QString("ping"), QString("identity"), QString("status_request"), QString("capabilities")}) {
+            if (sendRequest(primary, "primary", type)) ++completed;
+            else ok = false;
+        }
+    }
+    if (secondaryConnected) {
+        for (const QString &type : {QString("port_status"), QString("network_specifications")}) {
+            if (sendRequest(secondary, "secondary", type)) ++completed;
+            else ok = false;
+        }
+    }
+
+    ok = ok && completed == 6;
+    detail = QString("primary=%1 secondary=%2 requests=%3/6")
+                 .arg(primaryConnected ? "connected" : "failed")
+                 .arg(secondaryConnected ? "connected" : "failed")
+                 .arg(completed);
+
+    if (ok)
+        lastWesternHillsSuccess = QDateTime::currentDateTimeUtc();
+
+    if (db.isOpen()) {
+        QSqlQuery q(db);
+        q.prepare("INSERT INTO western_hills_contacts(timestamp,reason,uncertainty_triggered,success,primary_connected,secondary_connected,requests_completed,detail,response_json) VALUES(?,?,?,?,?,?,?,?,?)");
+        q.addBindValue(nowIso());
+        q.addBindValue(reason);
+        q.addBindValue(uncertaintyTriggered ? 1 : 0);
+        q.addBindValue(ok ? 1 : 0);
+        q.addBindValue(primaryConnected ? 1 : 0);
+        q.addBindValue(secondaryConnected ? 1 : 0);
+        q.addBindValue(completed);
+        q.addBindValue(detail);
+        q.addBindValue(QString::fromUtf8(QJsonDocument(responses).toJson(QJsonDocument::Compact)));
+        q.exec();
+    }
+
+    recordEvent("WESTERN_HILLS_AGENT_CONTACT", kProjectId, "TCP", "127.0.0.1", 32767,
+                ok ? "success" : "failure", reason + "; " + detail);
+    writeWesternHillsStatus(ok, reason, detail, responses);
+
+    if (ok)
+        setStatus("WesternHillsAgent information session completed: " + detail);
+    else
+        setStatus("WesternHillsAgent information session incomplete: " + detail);
+
+    primary.disconnectFromHost();
+    secondary.disconnectFromHost();
+    return ok;
 }
 
 void MainWindow::setStatus(const QString &message)
