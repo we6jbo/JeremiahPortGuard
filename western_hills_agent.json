@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "authorized_by_user_code": "3team",
+  "target": "WesternHillsAgent",
+  "host": "127.0.0.1",
+  "transport": "TCP/IPv4 loopback",
+  "framing": "NDJSON",
+  "protocol_version": 1,
+  "primary_port": 32767,
+  "secondary_port": 32766,
+  "scheduled_contact_max_interval_seconds": 21600,
+  "retry_after_failure_seconds": 600,
+  "contact_on_unresolved_local_state": true,
+  "safe_informational_requests": [
+    "ping",
+    "identity",
+    "status_request",
+    "port_status",
+    "capabilities",
+    "network_specifications"
+  ],
+  "secondary_required_requests": [
+    "port_status",
+    "network_specifications"
+  ],
+  "does_not_open_listener": true,
+  "does_not_enable_remote_control": true,
+  "does_not_execute_arbitrary_agent_commands": true
+}

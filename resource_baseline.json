@@ -1,0 +1,49 @@
+{
+  "schema": 2,
+  "baseline_name": "T14 September 13 2026 approved baseline",
+  "source_report_generated_at": "2026-09-13T08:25:00-07:00",
+  "immutable_reference": true,
+  "plugged_in": {
+    "cpu_percent": 12.34,
+    "ram_percent": 37.51,
+    "ram_used_gib": 5.730,
+    "ram_available_gib": 9.546,
+    "disk_used_percent": 63.61,
+    "disk_read_mib_s": 0.0263,
+    "disk_write_mib_s": 0.6842,
+    "network_in_mib_s": 0.12802,
+    "network_out_mib_s": 0.00631,
+    "load_1m": 1.192,
+    "load_5m": 1.068,
+    "load_15m": 1.094
+  },
+  "unplugged": {
+    "cpu_percent": 17.59,
+    "ram_percent": 38.26,
+    "ram_used_gib": 5.844,
+    "ram_available_gib": 9.432,
+    "disk_used_percent": 63.70,
+    "disk_read_mib_s": 0.0049,
+    "disk_write_mib_s": 0.4812,
+    "network_in_mib_s": 0.12195,
+    "network_out_mib_s": 0.01215,
+    "load_1m": 1.791,
+    "load_5m": 1.543,
+    "load_15m": 1.301,
+    "battery_test_start_percent": 100.0,
+    "battery_test_end_percent": 97.3,
+    "battery_test_duration_seconds": 413.1,
+    "battery_drain_percent_per_minute": 0.392
+  },
+  "governor": {
+    "full_throttle_health_floor_percent": 99.0,
+    "full_throttle_at_one_percent_below_baseline": true,
+    "minimum_sustained_samples_before_throttle": 3,
+    "sample_interval_seconds": 5,
+    "normal_listener_scan_seconds": 30,
+    "max_single_pause_seconds": 600,
+    "progressive_recovery": true,
+    "future_software_installations_are_not_automatically_degradation": true,
+    "prefer_attribution_before_meaningful_throttle": true
+  }
+}

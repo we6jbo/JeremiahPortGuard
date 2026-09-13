@@ -10,7 +10,20 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMessageBox>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QTextBrowser>
+#include <QDialogButtonBox>
+#include <QSettings>
+#include <QPrinter>
+#include <QPrintDialog>
+#include <QTextDocument>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QProcess>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSqlError>
@@ -95,11 +108,16 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    serviceMode = QCoreApplication::arguments().contains("--service");
     setWindowTitle(QString("JeremiahPortGuard %1").arg(QCoreApplication::applicationVersion()));
 
     connect(ui->refreshButton, &QPushButton::clicked, this, &MainWindow::refreshAll);
     connect(ui->verifyButton, &QPushButton::clicked, this, &MainWindow::verifyDatabase);
     connect(ui->exportButton, &QPushButton::clicked, this, &MainWindow::exportSnapshot);
+    connect(ui->viewGuideButton, &QPushButton::clicked, this, &MainWindow::viewGuide);
+    connect(ui->printGuideButton, &QPushButton::clicked, this, &MainWindow::printGuide);
+    connect(ui->serviceModeButton, &QPushButton::clicked, this, &MainWindow::enableServiceMode);
+    connect(ui->suppressConflictPopupsCheck, &QCheckBox::toggled, this, &MainWindow::conflictPopupPreferenceChanged);
 
     connect(&refreshTimer, &QTimer::timeout, this, &MainWindow::refreshAll);
     connect(&resourceTimer, &QTimer::timeout, this, &MainWindow::updateResourceState);
@@ -116,6 +134,13 @@ MainWindow::MainWindow(QWidget *parent)
         return;
     }
 
+    {
+        QSettings settings("JeremiahONeal", "JeremiahPortGuard");
+        suppressConflictPopups = settings.value("suppressConflictPopups", false).toBool();
+        ui->suppressConflictPopupsCheck->setChecked(suppressConflictPopups);
+        ui->serviceModeButton->setEnabled(!serviceMode);
+    }
+
     loadBaseline();
 
     if (!openDatabase() || !ensureSchema()) {
@@ -124,6 +149,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     seedPolicyReservations();
+    startLocalStatusServer();
     previousCpu = readCpuSample();
     refreshAll();
     updateResourceState();
@@ -290,14 +316,14 @@ void MainWindow::seedPolicyReservations()
     policy["authority_application_id"] = kApplicationId;
     policy["database_path"] = dbPath;
     policy["instruction"] = "Do not choose a random application port. Query the JeremiahPortGuard registry and request a managed assignment before creating a listener.";
-    policy["network_listener_present"] = false;
+    policy["network_listener_present"] = true;
+    policy["local_status_endpoint"] = "http://127.0.0.1:23458/";
     policy["client_server_authorization_required"] = "3team";
     policy["western_hills_agent_client_authorized"] = true;
     policy["western_hills_agent_primary"] = "127.0.0.1:32767";
     policy["western_hills_agent_secondary"] = "127.0.0.1:32766";
     policy["western_hills_agent_protocol"] = "TCP IPv4 loopback + NDJSON protocolVersion 1";
     QJsonArray reserved;
-    reserved.append(23458);
     reserved.append(23459);
     policy["policy_reserved_ports"] = reserved;
     QSaveFile advisory(dataDir + "/authority_instructions.json");
@@ -402,8 +428,31 @@ void MainWindow::scanListeners()
             u.addBindValue(id);
             u.exec();
             if (status == "POLICY_RESERVED") {
-                recordEvent("POLICY_PORT_IN_USE", kProjectId, protocol, address, port, "conflict",
-                            QString("Policy-reserved port is currently occupied by %1").arg(processName));
+                const QString details = QString("Policy-reserved port is currently occupied by %1").arg(processName);
+                recordEvent("POLICY_PORT_IN_USE", kProjectId, protocol, address, port, "conflict", details);
+                showPortConflictAlert(QString("policy:%1:%2:%3").arg(protocol, address).arg(port), protocol, address, port, details);
+            } else if (status == "MANAGED_ASSIGNED") {
+                const QString projectId = existing.value(1).toString();
+                QString expectedExe;
+                QSqlQuery expected(db);
+                expected.prepare("SELECT executable_path FROM projects WHERE project_id=?");
+                expected.addBindValue(projectId);
+                if (expected.exec() && expected.next())
+                    expectedExe = expected.value(0).toString();
+                if (!expectedExe.isEmpty() && actualExe != "not_available" && QFileInfo(actualExe).canonicalFilePath() != QFileInfo(expectedExe).canonicalFilePath()) {
+                    const QString details = QString("Managed assignment belongs to %1 but Linux reports %2 (PID %3)")
+                                                .arg(projectId, actualExe).arg(pid);
+                    QSqlQuery conflict(db);
+                    conflict.prepare("UPDATE port_assignments SET last_conflict_at=?, last_conflict_pid=?, last_conflict_executable=?, last_error=? WHERE id=?");
+                    conflict.addBindValue(seenAt);
+                    conflict.addBindValue(pid > 0 ? QVariant(pid) : QVariant());
+                    conflict.addBindValue(actualExe);
+                    conflict.addBindValue(details);
+                    conflict.addBindValue(id);
+                    conflict.exec();
+                    recordEvent("MAJOR_PORT_CONFLICT", projectId, protocol, address, port, "conflict", details);
+                    showPortConflictAlert(QString("managed:%1:%2:%3:%4").arg(protocol, address).arg(port).arg(actualExe), protocol, address, port, details);
+                }
             }
         } else {
             QSqlQuery ins(db);
@@ -988,6 +1037,232 @@ void MainWindow::updateResourceState()
                                .arg(r.governorMode)
                                .arg(r.effectiveWorkPercent, 0, 'f', 1)
                                .arg(refreshTimer.interval() / 1000));
+}
+
+
+
+QString MainWindow::guideHtml() const
+{
+    QFile f(dataDir + "/guide.html");
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString::fromUtf8(f.readAll());
+    return QStringLiteral("<h1>JeremiahPortGuard Guide</h1><p>SERVICE MODE CODE: <b>PORTGUIDE</b></p><p>Restore GUI with <code>jeremiah-port-guard gui-mode</code>.</p><p>Local status: <code>http://127.0.0.1:23458/</code></p>");
+}
+
+void MainWindow::viewGuide()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle("JeremiahPortGuard Guide");
+    dialog.resize(850, 700);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *browser = new QTextBrowser(&dialog);
+    browser->setHtml(guideHtml());
+    browser->setOpenExternalLinks(true);
+    layout->addWidget(browser);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog.exec();
+}
+
+void MainWindow::printGuide()
+{
+    QTextDocument document;
+    document.setHtml(guideHtml());
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintDialog dialog(&printer, this);
+    dialog.setWindowTitle("Print JeremiahPortGuard Guide");
+    if (dialog.exec() == QDialog::Accepted)
+        document.print(&printer);
+}
+
+void MainWindow::conflictPopupPreferenceChanged(bool checked)
+{
+    suppressConflictPopups = checked;
+    QSettings settings("JeremiahONeal", "JeremiahPortGuard");
+    settings.setValue("suppressConflictPopups", checked);
+}
+
+bool MainWindow::systemctlUser(const QStringList &arguments, QString *output) const
+{
+    QProcess p;
+    QStringList args{"--user"};
+    args << arguments;
+    p.start("systemctl", args);
+    if (!p.waitForFinished(10000))
+        return false;
+    if (output)
+        *output = QString::fromUtf8(p.readAllStandardOutput()) + QString::fromUtf8(p.readAllStandardError());
+    return p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
+}
+
+bool MainWindow::setGuiAutostartEnabled(bool enabled) const
+{
+    const QString dirPath = QDir::homePath() + "/.config/autostart";
+    QDir().mkpath(dirPath);
+    QSaveFile f(dirPath + "/JeremiahPortGuard.desktop");
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    const QString text = QString(
+        "[Desktop Entry]\nType=Application\nName=JeremiahPortGuard\nComment=Local port registry and resource-aware authority\nExec=%1\nTerminal=false\nX-GNOME-Autostart-enabled=%2\nHidden=%3\n")
+        .arg(QCoreApplication::applicationFilePath(), enabled ? "true" : "false", enabled ? "false" : "true");
+    f.write(text.toUtf8());
+    return f.commit();
+}
+
+void MainWindow::enableServiceMode()
+{
+    const QString prompt =
+        "To run this as an automated service and not have the GUI show up when you turn on your computer, "
+        "please enter the code from the guide.\n\nPlease print the guide before running this as a service.";
+    bool ok = false;
+    QString code = QInputDialog::getText(this, "Run JeremiahPortGuard as a Service", prompt,
+                                         QLineEdit::Normal, QString(), &ok);
+    if (!ok)
+        return;
+    code.remove(QRegularExpression("\\s+"));
+    if (code.compare("PORTGUIDE", Qt::CaseInsensitive) != 0) {
+        QMessageBox::warning(this, "Guide code not recognized",
+                             "That code was not recognized. Open or print the JeremiahPortGuard Guide and use the service-mode code shown there.");
+        return;
+    }
+
+    const auto confirm = QMessageBox::question(
+        this, "Enable Service Mode",
+        "Service Mode will stop showing the normal JeremiahPortGuard window automatically.\n\n"
+        "Make sure you have printed or saved the guide. To restore the GUI later, run:\n\n"
+        "jeremiah-port-guard gui-mode\n\nContinue?",
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (confirm != QMessageBox::Yes)
+        return;
+
+    QString output;
+    if (!systemctlUser({"enable", "jeremiah-port-guard.service"}, &output)) {
+        QMessageBox::critical(this, "Service could not be enabled",
+                              "JeremiahPortGuard left GUI startup unchanged.\n\n" + output);
+        return;
+    }
+    if (!setGuiAutostartEnabled(false)) {
+        systemctlUser({"disable", "jeremiah-port-guard.service"});
+        QMessageBox::critical(this, "GUI startup could not be changed",
+                              "JeremiahPortGuard did not switch modes because GUI autostart could not be updated.");
+        return;
+    }
+
+    recordEvent("SERVICE_MODE_ENABLED", kProjectId, "", "", 0, "ok", "User confirmed with PORTGUIDE");
+    QMessageBox::information(this, "Service Mode enabled",
+        "JeremiahPortGuard will now run in the background.\n\n"
+        "Local status: http://127.0.0.1:23458/\n\n"
+        "To restore the GUI later, run:\njeremiah-port-guard gui-mode");
+
+    // Delay startup slightly so this GUI instance can release SQLite and port 23458 first.
+    QProcess::startDetached("sh", {"-c", "sleep 2; systemctl --user start jeremiah-port-guard.service"});
+    QCoreApplication::quit();
+}
+
+void MainWindow::showPortConflictAlert(const QString &key, const QString &protocol,
+                                       const QString &address, int port, const QString &details)
+{
+    if (shownConflictKeys.contains(key))
+        return;
+    shownConflictKeys.insert(key);
+    if (serviceMode || suppressConflictPopups)
+        return;
+
+    QMessageBox box(QMessageBox::Critical, "Major Port Conflict",
+        QString("Two applications appear to be competing for the same managed network port.\n\n"
+                "Port: %1 %2:%3\n%4\n\n"
+                "JeremiahPortGuard recorded the conflict. It is also visible at http://127.0.0.1:23458/.")
+            .arg(protocol, address).arg(port).arg(details),
+        QMessageBox::Ok, this);
+    auto *suppressButton = box.addButton("Suppress Future Conflict Popups", QMessageBox::ActionRole);
+    box.exec();
+    if (box.clickedButton() == suppressButton) {
+        ui->suppressConflictPopupsCheck->setChecked(true);
+    }
+}
+
+bool MainWindow::startLocalStatusServer()
+{
+    connect(&webServer, &QTcpServer::newConnection, this, &MainWindow::handleWebConnection, Qt::UniqueConnection);
+    if (!webServer.listen(QHostAddress::LocalHost, 23458)) {
+        const QString detail = "Could not bind local status page: " + webServer.errorString();
+        recordEvent("MAJOR_PORT_CONFLICT", kProjectId, "TCP", "127.0.0.1", 23458, "conflict", detail);
+        showPortConflictAlert("status-server-bind", "TCP", "127.0.0.1", 23458, detail);
+        return false;
+    }
+
+    QSqlQuery q(db);
+    q.prepare("UPDATE port_assignments SET project_id=?, purpose=?, assignment_status='MANAGED_ASSIGNED', persistent_assignment=1, "
+              "last_verified_at=?, current_pid=?, actual_executable_path=?, actual_executable_hash=?, is_listening=1, actual_address='127.0.0.1', actual_port=23458, "
+              "authorization_method='user_authorized_3team_local_status', updated_at=? WHERE protocol='TCP' AND bind_address='127.0.0.1' AND port=23458");
+    q.addBindValue(kProjectId);
+    q.addBindValue("Local-only JeremiahPortGuard status and instructions web page");
+    q.addBindValue(nowIso());
+    q.addBindValue(qlonglong(getpid()));
+    q.addBindValue(QCoreApplication::applicationFilePath());
+    q.addBindValue(sha256File(QCoreApplication::applicationFilePath()));
+    q.addBindValue(nowIso());
+    q.exec();
+    recordEvent("LOCAL_STATUS_SERVER_STARTED", kProjectId, "TCP", "127.0.0.1", 23458, "ok", "Loopback-only HTTP status page");
+    return true;
+}
+
+QByteArray MainWindow::buildStatusHtml() const
+{
+    QString governorMode = lastResource.governorMode;
+    QString agentStatus = "unknown";
+    QFile agent(dataDir + "/western_hills_agent_status.json");
+    if (agent.open(QIODevice::ReadOnly)) {
+        const QJsonDocument doc = QJsonDocument::fromJson(agent.readAll());
+        if (doc.isObject())
+            agentStatus = doc.object().value("success").toBool() ? "connected / last contact successful" : "last contact failed";
+    }
+
+    QString conflicts;
+    QSqlQuery q(db);
+    q.exec("SELECT timestamp, protocol, address, port, reason FROM events WHERE event_type IN ('MAJOR_PORT_CONFLICT','POLICY_PORT_IN_USE') ORDER BY id DESC LIMIT 20");
+    while (q.next()) {
+        conflicts += QString("<tr><td>%1</td><td>%2</td><td>%3:%4</td><td>%5</td></tr>")
+            .arg(q.value(0).toString().toHtmlEscaped(), q.value(1).toString().toHtmlEscaped(),
+                 q.value(2).toString().toHtmlEscaped(), q.value(3).toString().toHtmlEscaped(),
+                 q.value(4).toString().toHtmlEscaped());
+    }
+    if (conflicts.isEmpty())
+        conflicts = "<tr><td colspan='4'>No recorded major conflicts.</td></tr>";
+
+    return QString(
+        "<!doctype html><html><head><meta charset='utf-8'><meta http-equiv='refresh' content='15'>"
+        "<title>JeremiahPortGuard</title><style>body{font-family:sans-serif;max-width:1000px;margin:30px auto;padding:0 16px}"
+        "table{border-collapse:collapse;width:100%}td,th{border:1px solid #aaa;padding:6px;text-align:left}.ok{font-weight:bold}</style></head><body>"
+        "<h1>JeremiahPortGuard</h1><p class='ok'>Status: Running</p>"
+        "<p>Operating mode: <b>%1</b><br>Governor: <b>%2</b><br>Machine health: <b>%3%%</b><br>Effective work: <b>%4%%</b><br>WesternHillsAgent: <b>%5</b></p>"
+        "<p><a href='/guide'>View Guide</a></p>"
+        "<h2>Recent Major Port Conflicts</h2><table><tr><th>Time</th><th>Protocol</th><th>Endpoint</th><th>Details</th></tr>%6</table>"
+        "<h2>Restore the GUI</h2><p>Run <code>jeremiah-port-guard gui-mode</code> or choose <b>JeremiahPortGuard - Restore GUI</b> from the application menu.</p>"
+        "<p>This page is available only on 127.0.0.1:23458.</p></body></html>")
+        .arg(serviceMode ? "SERVICE" : "GUI", governorMode.toHtmlEscaped())
+        .arg(lastResource.machineHealthPercent, 0, 'f', 2)
+        .arg(lastResource.effectiveWorkPercent, 0, 'f', 1)
+        .arg(agentStatus.toHtmlEscaped(), conflicts)
+        .toUtf8();
+}
+
+void MainWindow::handleWebConnection()
+{
+    while (webServer.hasPendingConnections()) {
+        QTcpSocket *socket = webServer.nextPendingConnection();
+        connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
+            const QByteArray request = socket->readAll();
+            const bool wantsGuide = request.startsWith("GET /guide ") || request.startsWith("GET /guide?");
+            const QByteArray body = wantsGuide ? guideHtml().toUtf8() : buildStatusHtml();
+            QByteArray response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: "
+                                + QByteArray::number(body.size()) + "\r\n\r\n" + body;
+            socket->write(response);
+            socket->disconnectFromHost();
+        });
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+    }
 }
 
 

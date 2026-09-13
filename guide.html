@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>JeremiahPortGuard Guide</title>
+<style>body{font-family:sans-serif;max-width:850px;margin:32px auto;line-height:1.45}h1,h2{margin-top:1.3em}.box{border:2px solid #333;padding:16px;margin:16px 0}.big{font-size:1.35em;font-weight:bold}code,pre{background:#eee;padding:2px 5px}pre{padding:12px;overflow:auto}@media print{body{margin:0;max-width:none}.noprint{display:none}}</style></head>
+<body>
+<h1>JeremiahPortGuard User Guide</h1>
+<p>JeremiahPortGuard manages local port assignments, observes existing Linux listeners, reports conflicts, monitors computer resource pressure, and can consult WesternHillsAgent for supported informational questions.</p>
+<div class="box"><div class="big">SERVICE MODE CODE: PORTGUIDE</div><p>This is not a password. It only confirms that you have this guide before hiding the normal GUI. Capitalization and spaces do not matter.</p></div>
+<h2>Normal GUI Mode</h2>
+<p>After a fresh installation, JeremiahPortGuard starts automatically when you sign in to the graphical desktop and shows its normal window.</p>
+<h2>Run as Service</h2>
+<p>In the JeremiahPortGuard window, click <b>Run as Service</b>. The program asks for the code printed above. Enter <b>PORTGUIDE</b>. Variations such as <b>portguide</b> or <b>Port Guide</b> are accepted.</p>
+<p>Service Mode disables normal GUI autostart, enables the JeremiahPortGuard systemd user service, and keeps the registry running in the background. The local status page remains available.</p>
+<h2>HOW TO BRING THE GUI BACK</h2>
+<div class="box"><p class="big">Open a terminal and type:</p><pre>jeremiah-port-guard gui-mode</pre><p>This stops and disables Service Mode, restores automatic GUI startup, and opens the GUI.</p></div>
+<p>You can also open the Manjaro application menu and choose <b>JeremiahPortGuard - Restore GUI</b>.</p>
+<h2>Local Status Page</h2>
+<p>While either mode is running, open a browser on this computer and go to:</p>
+<pre>http://127.0.0.1:23458/</pre>
+<p>The page is bound only to localhost. It shows operating mode, governor information, recent port conflicts, and WesternHillsAgent contact status.</p>
+<h2>Port Conflict Alerts</h2>
+<p>When JeremiahPortGuard detects a serious managed-port conflict, GUI mode can display a warning dialog. Repeated popups can be suppressed from the main window. Conflicts are still logged and remain visible on the local status page even when popups are suppressed.</p>
+<h2>Useful Commands</h2>
+<pre>jeremiah-port-guard status
+jeremiah-port-guard gui-mode
+jeremiah-port-guard service-mode
+systemctl --user status jeremiah-port-guard.service</pre>
+<p><b>Important:</b> Keep this printed guide somewhere you can find it if you use Service Mode.</p>
+</body></html>

@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QDateTime>
 #include <QSet>
+#include <QTcpServer>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -25,6 +26,11 @@ private slots:
     void verifyDatabase();
     void updateResourceState();
     void contactWesternHillsAgentPeriodic();
+    void viewGuide();
+    void printGuide();
+    void enableServiceMode();
+    void conflictPopupPreferenceChanged(bool checked);
+    void handleWebConnection();
 
 private:
     struct CpuSample {
@@ -61,6 +67,7 @@ private:
     QTimer refreshTimer;
     QTimer resourceTimer;
     QTimer westernHillsTimer;
+    QTcpServer webServer;
     QString dataDir;
     QString dbPath;
     QString identityPath;
@@ -78,6 +85,9 @@ private:
     QDateTime lastWesternHillsSuccess;
     QDateTime lastUncertaintyConsult;
     QSet<QString> consultedUncertaintyReasons;
+    QSet<QString> shownConflictKeys;
+    bool serviceMode = false;
+    bool suppressConflictPopups = false;
 
     struct Baseline {
         double pluggedCpu = 12.34;
@@ -133,4 +143,11 @@ private:
     void scheduleNextWesternHillsContact(bool lastAttemptSucceeded);
     void writeWesternHillsStatus(bool success, const QString &reason, const QString &detail,
                                  const QJsonObject &responses);
+    bool startLocalStatusServer();
+    QByteArray buildStatusHtml() const;
+    QString guideHtml() const;
+    void showPortConflictAlert(const QString &key, const QString &protocol, const QString &address, int port, const QString &details);
+    bool setGuiAutostartEnabled(bool enabled) const;
+    bool systemctlUser(const QStringList &arguments, QString *output = nullptr) const;
+
 };

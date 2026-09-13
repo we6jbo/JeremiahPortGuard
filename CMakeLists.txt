@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(JeremiahPortGuard VERSION 0.4.0 LANGUAGES CXX)
+project(JeremiahPortGuard VERSION 0.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Sql Network PrintSupport)
 
 qt_add_executable(JeremiahPortGuard
     main.cpp
@@ -16,7 +16,7 @@ qt_add_executable(JeremiahPortGuard
     mainwindow.ui
 )
 
-target_link_libraries(JeremiahPortGuard PRIVATE Qt6::Widgets Qt6::Sql Qt6::Network)
+target_link_libraries(JeremiahPortGuard PRIVATE Qt6::Widgets Qt6::Sql Qt6::Network Qt6::PrintSupport)
 
 target_compile_definitions(JeremiahPortGuard PRIVATE
     JPG_VERSION="${PROJECT_VERSION}"

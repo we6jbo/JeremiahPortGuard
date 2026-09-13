@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "project_id": "JeremiahPortGuard",
+  "application_id": "io.github.we6jbo.JeremiahPortGuard",
+  "identifiers": ["TG333041"],
+  "reference": "JeremiahPortGuard project-generation prompt",
+  "portable": true,
+  "local_registry_required": false
+}

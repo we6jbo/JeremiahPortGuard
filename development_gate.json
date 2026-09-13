@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "project_id": "JeremiahPortGuard",
+  "tracker_project_number": 201,
+  "tracker_command": "/opt/sep13/tracker.sh 201",
+  "github_warning_text": "IT IS TIME TO MAKE SURE THIS PROJECT IS ON GITHUB NOW.",
+  "github_repository": "https://github.com/we6jbo/JeremiahPortGuard",
+  "github_branch": "master",
+  "required_github_file": "987324987.txt",
+  "required_github_file_url": "https://github.com/we6jbo/JeremiahPortGuard/blob/master/987324987.txt",
+  "policy": {
+    "run_tracker_before_each_new_development_version": true,
+    "run_tracker_once_per_development_version": true,
+    "installer_must_not_decrement_tracker_again": true,
+    "on_warning_stop_feature_development": true,
+    "verify_repository_reachable": true,
+    "verify_intended_changes_committed": true,
+    "verify_commits_pushed": true,
+    "verify_required_file_on_master": true,
+    "push_from_local_repository_when_permitted": true,
+    "stop_and_report_auth_or_network_failure": true
+  }
+}
