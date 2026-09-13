@@ -3,41 +3,59 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>640</width>
-    <height>420</height>
-   </rect>
+   <rect><x>0</x><y>0</y><width>1180</width><height>720</height></rect>
   </property>
-  <property name="windowTitle">
-   <string>JeremiahPortGuard</string>
-  </property>
+  <property name="windowTitle"><string>JeremiahPortGuard</string></property>
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
     <item>
      <widget class="QLabel" name="titleLabel">
-      <property name="text">
-       <string>JeremiahPortGuard</string>
-      </property>
-      <property name="alignment">
-       <set>Qt::AlignmentFlag::AlignCenter</set>
-      </property>
+      <property name="text"><string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:16pt; font-weight:700;&quot;&gt;JeremiahPortGuard&lt;/span&gt;&lt;br/&gt;Local port registry, Linux listener discovery, and baseline-aware adaptive governor&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string></property>
      </widget>
     </item>
     <item>
-     <spacer name="verticalSpacer">
-      <property name="orientation">
-       <enum>Qt::Orientation::Vertical</enum>
-      </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>20</width>
-        <height>40</height>
-       </size>
-      </property>
-     </spacer>
+     <layout class="QHBoxLayout" name="resourceLayout">
+      <item><widget class="QLabel" name="labelCpu"><property name="text"><string>CPU:</string></property></widget></item>
+      <item><widget class="QLabel" name="cpuValue"><property name="text"><string>n/a</string></property></widget></item>
+      <item><widget class="QLabel" name="labelRam"><property name="text"><string>RAM:</string></property></widget></item>
+      <item><widget class="QLabel" name="ramValue"><property name="text"><string>n/a</string></property></widget></item>
+      <item><widget class="QLabel" name="labelDisk"><property name="text"><string>Disk:</string></property></widget></item>
+      <item><widget class="QLabel" name="diskValue"><property name="text"><string>n/a</string></property></widget></item>
+      <item><widget class="QLabel" name="labelBattery"><property name="text"><string>Battery:</string></property></widget></item>
+      <item><widget class="QLabel" name="batteryValue"><property name="text"><string>n/a</string></property></widget></item>
+      <item><widget class="QLabel" name="labelHealth"><property name="text"><string>Health:</string></property></widget></item>
+      <item><widget class="QLabel" name="healthValue"><property name="text"><string>100%</string></property></widget></item>
+      <item><widget class="QLabel" name="labelGovernor"><property name="text"><string>Governor:</string></property></widget></item>
+      <item><widget class="QLabel" name="governorValue"><property name="text"><string>FULL</string></property></widget></item>
+      <item><spacer name="horizontalSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     </layout>
     </item>
+    <item>
+     <layout class="QHBoxLayout" name="buttonLayout">
+      <item><widget class="QPushButton" name="refreshButton"><property name="text"><string>Refresh listeners</string></property></widget></item>
+      <item><widget class="QPushButton" name="verifyButton"><property name="text"><string>Verify database</string></property></widget></item>
+      <item><widget class="QPushButton" name="exportButton"><property name="text"><string>Export JSON snapshot</string></property></widget></item>
+      <item><spacer name="buttonSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QTableWidget" name="portTable">
+      <property name="columnCount"><number>11</number></property>
+      <column><property name="text"><string>Project</string></property></column>
+      <column><property name="text"><string>Protocol</string></property></column>
+      <column><property name="text"><string>Address</string></property></column>
+      <column><property name="text"><string>Port</string></property></column>
+      <column><property name="text"><string>Status</string></property></column>
+      <column><property name="text"><string>Persistent</string></property></column>
+      <column><property name="text"><string>PID</string></property></column>
+      <column><property name="text"><string>Executable</string></property></column>
+      <column><property name="text"><string>Listening</string></property></column>
+      <column><property name="text"><string>Purpose</string></property></column>
+      <column><property name="text"><string>Verified</string></property></column>
+     </widget>
+    </item>
+    <item><widget class="QLabel" name="statusLabel"><property name="text"><string>Starting...</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+    <item><widget class="QLabel" name="policyLabel"><property name="text"><string>Ports 23458 and 23459 are policy-reserved in the registry only. This version does not bind or listen on them. A client/server or network control listener requires the user-provided 3team authorization code.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
    </layout>
   </widget>
  </widget>
