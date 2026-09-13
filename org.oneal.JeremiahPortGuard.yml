@@ -1,0 +1,16 @@
+app-id: org.oneal.JeremiahPortGuard
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+command: JeremiahPortGuard
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+modules:
+  - name: JeremiahPortGuard
+    buildsystem: cmake-ninja
+    sources:
+      - type: dir
+        path: .
